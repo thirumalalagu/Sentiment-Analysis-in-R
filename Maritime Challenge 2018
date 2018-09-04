@@ -1,0 +1,265 @@
+# Loading packages
+library(twitteR) #Provides an interface to Twitter web API
+library(ROAuth) #Provides interface to authentication
+library(tm) #Text mining package
+library(ggplot2) #Map the variable to aesthetics
+library(syuzhet) #Extract sentiments
+library(RWeka) #Weka is a collection for data mining tasks 
+library(wordcloud) #Plot a word cloud
+library(pander) #An R 'Pandoc' Writer
+
+# Get the key, secret, access token and access token secret from the Keys and Tokens tab
+api_key <- "yMGY8QKvFvz7dJQAwcFNWApgw"
+api_secret <-  "EZHBPXUQ71XFWhD61pvtB348xF50IVVTEth3cL7iX4c1bj60dL"
+access_token <- "449646299-M5GnXILPFZn6OHCckJMXJ21hgqzgZimy8GBoN4VV"
+access_token_secret <- "xaLpIniWjprwwh9fxCvn6DvFW2WSLrxmfMcUdleFulhCE"
+#From the above specified keys and tokens, setup twitter Authentication 
+setup_twitter_oauth(api_key,api_secret,access_token,access_token_secret)
+
+# Searching Maritime Challenge 2018 using hastags from twitter 
+tweets1 <- searchTwitter("$appl", n =500, lang = 'en')
+tweets2 <- searchTwitter("#MaritimeSG", n =100, lang = 'en' )
+tweets3 <- searchTwitter("#AMC2018", n =100, lang = 'en' )
+# gives the number of tweets
+length(tweets1)
+length(tweets2)
+length(tweets3)
+
+# converting tweets to DataFrame using twListToDF
+tweetdf1 <-twListToDF(tweets1)
+tweetdf2 <-twListToDF(tweets2)
+tweetdf3 <-twListToDF(tweets3)
+
+tweets <- rbind(tweetdf1,tweetdf2,tweetdf3)
+dim(tweetdf1)
+write.csv(tweetdf1,"apltweets.csv")
+
+#Corpus is the total of all available texts in a category
+corpus1 <- iconv(,"UTF-8", "ASCII",sub = "")
+tweet_corpus <- Corpus(VectorSource(corpus1))
+#since head function cannot be used for Corpus, here we use inspect function to view the tweets 
+inspect(tweet_corpus[1:10])
+
+#Remove http links from tweet_corpus using gsub function
+#gsub() function replaces all matches of a string, if the parameter is a string vector,
+#of the same length and with the same attributes
+removeURL <- function(x) {gsub('http\\S*', "", x)}
+tweet_corpus <- tm_map(tweet_corpus, content_transformer(removeURL))
+inspect(tweet_corpus[1:5])
+
+#Remove retweet from the tweet_corpus 
+removeRT <- function(x) {gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", x)}
+tweet_corpus <- tm_map(tweet_corpus, content_transformer(removeRT))
+inspect(tweet_corpus[1:5])
+
+#Convert to lowercase
+tweet_corpus <- tm_map(tweet_corpus, tolower)
+inspect(tweet_corpus[1:5])
+
+# Remove Punctuation
+tweet_corpus <- tm_map(tweet_corpus, removePunctuation)
+inspect(tweet_corpus[1:5])
+
+# Remove Numbers
+tweet_corpus <- tm_map(tweet_corpus, removeNumbers)
+inspect(tweet_corpus[1:5])
+
+# Remove filler words such as to,and,but and or from our tweet_corpus
+tweet_corpus <- tm_map(tweet_corpus, removeWords, stopwords('english'))
+inspect(tweet_corpus[1:5])
+
+# Removing Whitespace  
+# Strip extra whitespace from a text document.
+tweet_corpus <- tm_map(tweet_corpus, stripWhitespace)
+inspect(tweet_corpus[1:5])
+
+#define 'tolower error handling' function
+try.error = function(x)
+{
+  # create missing value
+  y = NA
+  # tryCatch error
+  try_error = tryCatch(tolower(x), error=function(e) e)
+  # if not an error
+  if (!inherits(try_error, 'error'))
+    y = tolower(x)
+  # result
+  return(y)
+}
+
+#Lower case using try.error with sapply
+tweet_corpus = sapply(tweet_corpus, try.error)
+head(tweet_corpus)
+
+# Remove NAs in some_txt
+tweet_corpus = tweet_corpus[!is.na(tweet_corpus)]
+names(tweet_corpus) = NULL
+head(tweet_corpus)
+
+#Using NGram Tokenization
+tokens <- NGramTokenizer(tweet_corpus, Weka_control(min = 1, max = 1))
+length(tokens)
+
+# sentiment analysis using bing method. An opinion is a quintuple, (ei, aij, sijkl, hk, tl), containiting, the entity, aspect, sentiment, opininon holder and time. 5 sentiment ratings, emotional negative (-2), rational negative (-1), neutral (0),rational positive (+1), and emotional positive (+2).
+b <- get_sentiment(tweet_corpus, method="bing")
+rescaled_b <- rescale(b)
+
+plot(rescaled_b, 
+     type="l", 
+     main="Bing Plot", 
+     xlab = "Time", 
+     ylab= "Emotional Valence",
+     col = "blue")
+
+
+# sentiment analysis using afinn method. FINN is a list of English words rated for valence with an integer. AFINN-111: Newest version with 2477 words and phrases.Very Negative (rating -5 or -4) Negative (rating -3, -2, or -1) Positive (rating 1, 2, or 3) Very Positive (rating 4 or 5) between minus five (negative) and plus five (positive). 
+af <- get_sentiment(tweet_corpus, method="afinn")
+rescaled_af <- rescale(af)
+
+# Ploting sentiment analysis using afinn method
+plot(rescaled_af, 
+     type="l", 
+     main="Afinn Plot", 
+     xlab = "Time", 
+     ylab= "Emotional Valence",
+     col = "green")
+
+
+# sentiment analysis using nrc method. eight basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust) and two sentiments (negative and positive)
+nrc <- get_sentiment(tweet_corpus, method="nrc")
+rescaled_nrc <- rescale(nrc)
+
+# Ploting sentiment analysis using nrc method
+plot(rescaled_nrc, 
+  type="l", 
+  main="Nrc Plot", 
+  xlab = "Time", 
+  ylab= "Emotional Valence",
+  col = "red")
+
+#  percentage-based sentiment comparison using Fourier Transformation and low pass filter.
+#  Scaled by subtracting the means and dividing by their standard deviations
+# FT for bing method
+ft_values_bing <- get_transformed_values(
+  rescaled_b, 
+  low_pass_size = 3, 
+  x_reverse_len = 100,
+  scale_vals = TRUE,
+  scale_range = FALSE
+)
+
+# Ploting Bing - Transformed Values
+plot(ft_values_bing, 
+  type ="h", 
+  main ="Bing - Transformed Values", 
+  xlab = "Time", 
+  ylab = "Emotional Valence", 
+  col = "red")
+
+
+# FT for Afinn method
+ft_values_afinn <- get_transformed_values(
+  rescaled_af, 
+  low_pass_size = 3, 
+  x_reverse_len = 100,
+  scale_vals = TRUE,
+  scale_range = FALSE)
+
+# Ploting Afinn - Transformed Values
+plot(ft_values_afinn, 
+     type ="h", 
+     main ="Afinn - Transformed Values", 
+     xlab = "Time", 
+     ylab = "Emotional Valence", 
+     col = "red")
+
+
+# FT for nrc method
+ft_values_nrc <- get_transformed_values(
+  rescaled_nrc, 
+  low_pass_size = 3, 
+  x_reverse_len = 100,
+  scale_vals = TRUE,
+  scale_range = FALSE)
+
+# Ploting NRC - Transformed Values
+plot(ft_values_nrc, 
+  type ="h", 
+  main ="NRC - Transformed Values", 
+  xlab = "Time", 
+  ylab = "Emotional Valence", 
+  col = "red")
+
+sent_Analysed <- get_nrc_sentiment(tweet_corpus)
+# Transpose nrc sentiment to list the emotions by rows
+sent_transpose <- data.frame(t(sent_Analysed))
+# Sum up the columns to get sum of each emotion
+sum_each_sentiment <- data.frame(rowSums(sent_transpose))
+
+# Prepare to plot. Add column names as sentiment
+names(sum_each_sentiment)[1] <- "count"
+p_sentiments <- cbind("sentiment" = rownames(sum_each_sentiment), sum_each_sentiment)
+rownames(p_sentiments) <- NULL
+# Get the 8 emotions
+emotions<-p_sentiments[1:8,]
+
+#Vizualisation
+#library("ggplot2")
+qplot(sentiment, data=emotions, weight=count, geom="bar",fill=sentiment)+ggtitle("sentiment")
+
+# NRC with percentage of emotions 
+d <- sent_Analysed
+
+# View the emotions and their values
+pander::pandoc.table(d[, 1:8])
+pander::pandoc.table(d[, 9:10])
+
+# Sum up positive and negative emotions as a single value of positive or negative valence
+valence <- (d[, 9]*-1) + d[, 10]
+
+# percentage of each emotion in the email 
+barplot(
+  sort(colSums(prop.table(d[, 1:8]))), 
+  horiz = TRUE, 
+  cex.names = 0.7, 
+  las = 1, 
+  main = "NRC - Emotions in Percentages", xlab="Percentage",
+  col="blue"
+)
+
+# percentage of positive and negative sentiment in the tweets
+barplot(
+  sort(colSums(prop.table(d[, 9:10]))), 
+  horiz = TRUE, 
+  cex.names = 0.7, 
+  las = 1, 
+  main = "NRC - Polarity in Percentages", xlab="Percentage",
+  col=c("red","green")
+)
+
+
+sc <- Corpus(VectorSource(tweet_corpus))
+sclean<- tm_map(sc, removePunctuation)
+sclean <- tm_map(sclean, content_transformer(tolower))
+sclean <- tm_map(sclean, removeWords, stopwords(kind="en"))
+sclean <- tm_map(sclean, removeNumbers)
+sclean <- tm_map(sclean, stripWhitespace) 
+frequencies = DocumentTermMatrix(sclean)
+word_frequencies = as.data.frame(as.matrix(frequencies))
+
+# WordCloud
+
+words <- colnames(word_frequencies)
+freq <- colSums(word_frequencies)
+wordcloud(words, freq,
+          min.freq=sort(freq, decreasing=TRUE)[[100]],
+          colors=brewer.pal(8, "Dark2"),
+          random.color=TRUE) 
+
+
+positive <- colnames(word_frequencies)
+negative <- colSums(word_frequencies)
+wordcloud(words, freq,
+          min.freq=sort(freq, decreasing=TRUE)[[100]],
+          colors=brewer.pal(8, "Dark2"),
+          random.color=TRUE) 
